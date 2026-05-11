@@ -204,6 +204,77 @@ HASH_PREFER_NATIVE_HASH=1
 
 ---
 
+
+
+## GPU Quickstart (CUDA)
+
+Use this section if you want to run the GPU path directly.
+
+### 1) Prerequisites
+
+- NVIDIA GPU with recent CUDA driver.
+- Matching CuPy wheel (`cupy-cuda12x` in this project).
+- Python 3.11 environment.
+
+### 2) Set GPU env vars
+
+```env
+HASH_USE_CUDA=1
+HASH_CUDA_BLOCKS=4096
+HASH_CUDA_THREADS=256
+```
+
+Recommended starting points:
+- Keep `HASH_CUDA_THREADS=256` unless profiling says otherwise.
+- Tune `HASH_CUDA_BLOCKS` upward until GPU utilization is high without excessive stale work.
+
+### 3) Full example config
+
+```env
+HASH_RPC_URL=https://your-private-rpc.example
+HASH_PRIVATE_KEY=0xYOUR_PRIVATE_KEY
+HASH_CONTRACT_ADDRESS=0xYourHashContract
+HASH_CHAIN_ID=1
+
+HASH_USE_CUDA=1
+HASH_CUDA_BLOCKS=4096
+HASH_CUDA_THREADS=256
+HASH_POLL_INTERVAL=1.0
+HASH_STATS_INTERVAL=10.0
+```
+
+### 4) Run
+
+```bash
+python -m hash_miner.main
+```
+
+### 5) Validate you are on GPU path
+
+Look for log lines like:
+
+```text
+INFO | hash_miner | CUDA benchmark: 1.234 GH/s
+INFO | hash_miner | New job id=... epoch=... difficulty=...
+```
+
+If you do not see the CUDA benchmark line, you're likely on CPU fallback.
+
+### 6) Batch sizing guidance
+
+- Too small batches: Python launch overhead dominates.
+- Too large batches: stale work risk increases on epoch/difficulty updates.
+- Practical target: kernel batches roughly in the 50–200 ms range.
+
+### 7) Safety notes for GPU mode
+
+GPU mode still keeps all correctness checks in runtime:
+- challenge parity with `getChallenge(miner)`
+- local revalidation before submit
+- preflight `eth_call` before broadcast
+- pending-tx suppression
+- epoch-change stale batch discard
+
 ## Running the miner
 
 ```bash

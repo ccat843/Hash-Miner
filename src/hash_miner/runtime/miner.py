@@ -17,6 +17,7 @@ from hash_miner.mining.native_backend import load_backend
 from hash_miner.mining.worker import mine_loop
 from hash_miner.runtime.stats import MinerStats
 from hash_miner.mining.benchmark import benchmark_hashrate
+from hash_miner.gpu import CudaKeccakMiner
 from hash_miner.types import MiningJob, WorkResult
 
 
@@ -39,8 +40,14 @@ class HashMiner:
         self.job_stop = Event()
         self.tx_pending_until = 0.0
         self.pending_tx_hash: str | None = None
+        self.gpu_nonce_base: int = 0
+        self.gpu = CudaKeccakMiner(cfg.cuda_threads_per_block, cfg.cuda_blocks) if cfg.use_cuda else None
         seed_challenge = compute_challenge(cfg.chain_id, cfg.contract_address, self.miner, 0)
-        self.log.info("Backend single-thread benchmark: %.2f H/s", benchmark_hashrate(seed_challenge, iterations=50000))
+        if self.gpu is None:
+            self.log.info("Backend single-thread benchmark: %.2f H/s", benchmark_hashrate(seed_challenge, iterations=50000))
+        else:
+            self.gpu.set_challenge(seed_challenge)
+            self.log.info("CUDA benchmark: %.3f GH/s", self.gpu.benchmark(5))
 
     def _start_workers(self, job: MiningJob) -> None:
         self.job_stop.set()
@@ -71,11 +78,40 @@ class HashMiner:
             if self.current_job is None or self.current_job.epoch != snap.epoch or self.current_job.difficulty != snap.difficulty:
                 job_id += 1
                 self.current_job = MiningJob(job_id=job_id, epoch=snap.epoch, difficulty=snap.difficulty, challenge=snap.challenge)
-                self._start_workers(self.current_job)
+                if self.gpu is None:
+                    self._start_workers(self.current_job)
+                else:
+                    self.job_stop.set()
+                    self.gpu.set_challenge(self.current_job.challenge)
+                    self.gpu_nonce_base = 0
+                    self.gpu.validate_samples(self.current_job.challenge, 0, samples=64)
                 self.log.info("New job id=%s epoch=%s difficulty=%s blocks_left=%s", job_id, snap.epoch, snap.difficulty, snap.epoch_blocks_left)
 
-            await self._drain_results(snap)
+            if self.gpu is None:
+                await self._drain_results(snap)
+            else:
+                await self._gpu_scan_and_submit(snap)
             await asyncio.sleep(self.cfg.poll_interval)
+
+
+    async def _gpu_scan_and_submit(self, snap) -> None:
+        if self.current_job is None or self.gpu is None:
+            return
+        if self._pending():
+            return
+        start_epoch = snap.epoch
+        nonce_base = self.gpu_nonce_base
+        r = self.gpu.scan_batch(nonce_base, snap.difficulty)
+        self.gpu_nonce_base += r.checked
+        self.stats.hashes += r.checked
+        latest_epoch = self.adapter.snapshot(self.miner).epoch
+        if latest_epoch != start_epoch:
+            return
+        if r.found and r.nonce is not None:
+            self.stats.found += 1
+            digest = hash_nonce(self.current_job.challenge, r.nonce)
+            if is_valid(digest, snap.difficulty):
+                await self._submit_nonce(r.nonce)
 
     async def _drain_results(self, snap) -> None:
         while True:

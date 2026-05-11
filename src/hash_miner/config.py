@@ -12,6 +12,9 @@ class MinerConfig:
     poll_interval: float
     stats_interval: float
     prefer_native_hash: bool
+    use_cuda: bool
+    cuda_blocks: int
+    cuda_threads_per_block: int
 
     @staticmethod
     def from_env() -> "MinerConfig":
@@ -24,4 +27,7 @@ class MinerConfig:
             poll_interval=float(os.getenv("HASH_POLL_INTERVAL", "1.0")),
             stats_interval=float(os.getenv("HASH_STATS_INTERVAL", "10.0")),
             prefer_native_hash=os.getenv("HASH_PREFER_NATIVE_HASH", "1") not in {"0", "false", "False"},
+            use_cuda=os.getenv("HASH_USE_CUDA", "1") not in {"0", "false", "False"},
+            cuda_blocks=int(os.getenv("HASH_CUDA_BLOCKS", "4096")),
+            cuda_threads_per_block=int(os.getenv("HASH_CUDA_THREADS", "256")),
         )
