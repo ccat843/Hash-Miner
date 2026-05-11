@@ -25,12 +25,12 @@ class CudaKeccakMiner:
         self.module = cp.RawModule(code=src, options=("--std=c++14",), name_expressions=["mine_keccak_kernel", "sample_hashes_kernel"])
         self.kernel = self.module.get_function("mine_keccak_kernel")
         self.sample_kernel = self.module.get_function("sample_hashes_kernel")
-        self.challenge_symbol, _ = self.module.get_global("d_challenge")
+        self.challenge_symbol = self.module.get_global("d_challenge")
 
     def set_challenge(self, challenge: bytes) -> None:
         if len(challenge) != 32:
             raise ValueError("challenge must be 32 bytes")
-        cp.cuda.runtime.memcpyHtoD(self.challenge_symbol, challenge, 32)
+        cp.cuda.runtime.memcpyHtoD(self.challenge_symbol.ptr, challenge, 32)
 
     def scan_batch(self, nonce_base: int, difficulty: int) -> GpuMiningResult:
         total = self.threads_per_block * self.blocks

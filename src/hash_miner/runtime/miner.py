@@ -41,7 +41,12 @@ class HashMiner:
         self.tx_pending_until = 0.0
         self.pending_tx_hash: str | None = None
         self.gpu_nonce_base: int = 0
-        self.gpu = CudaKeccakMiner(cfg.cuda_threads_per_block, cfg.cuda_blocks) if cfg.use_cuda else None
+        self.gpu = None
+        if cfg.use_cuda:
+            try:
+                self.gpu = CudaKeccakMiner(cfg.cuda_threads_per_block, cfg.cuda_blocks)
+            except Exception as exc:
+                self.log.warning("CUDA init failed, falling back to CPU backend: %s", exc)
         seed_challenge = compute_challenge(cfg.chain_id, cfg.contract_address, self.miner, 0)
         if self.gpu is None:
             self.log.info("Backend single-thread benchmark: %.2f H/s", benchmark_hashrate(seed_challenge, iterations=50000))
